@@ -1,0 +1,324 @@
+---
+title: "OT_network"
+author: "Soyoung Park"
+date: "2/20/2020"
+output: pdf_document
+---
+
+```{r message=FALSE, warning=FALSE, load environment, eval=FALSE}
+rm(list = ls())
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(readr)
+library(tidytext)
+library(stringr)
+library(scales)
+library(readxl)
+#install.packages(c("quanteda", "xtable", "htmlwidgets", "webshot"))
+library(quanteda)
+library(xtable)
+library(htmlwidgets)
+library(webshot)
+```
+
+```{r user IDs from 2019}
+load("~/Documents/GitHub/OT_analysis/data/dataset_final.RData")
+
+sent <- read.csv(file="~/Documents/GitHub/OT_analysis/results/graph2019_7.csv")
+
+sent <- sent %>%
+  filter(year==2019)
+
+library(robustHD)
+dataset <- dataset %>%
+  select(id, year, date, time, username, name, tweet, replies_count, retweets_count, likes_count, retweet, retweet_id, reply_to) %>%
+  filter(year==2019) %>%
+  group_by(username) %>%
+  mutate(count=n())
+
+library(psych)
+describe(dataset$replies_count)
+describe(dataset$likes_count)
+describe(dataset$retweets_count)
+
+normalize <- function(x)
+{
+  return((x- min(x)) /(max(x)-min(x)))
+}
+
+dataset$popularity <- normalize(dataset$replies_count)+
+  normalize(dataset$retweets_count)+normalize(dataset$likes_count)
+
+describe(dataset$popularity)
+
+glimpse(dataset)
+
+users2019 <- dataset %>%
+  pull(username) %>% unique
+
+summary(dataset)
+
+correlation <- select(dataset, likes_count, replies_count, retweets_count, popularity)
+correlation$username <- NULL
+
+library(Hmisc)
+corr2<-rcorr(as.matrix(correlation))
+
+#install.packages("PerformanceAnalytics")
+library("PerformanceAnalytics")
+
+jpeg('~/Documents/GitHub/OT_analysis/results/correlation.jpg', width = 800, height = 800, res=200)
+chart.Correlation(correlation, histogram=TRUE, pch=19)
+dev.off()
+
+tweets <- dataset[order(dataset$popularity, decreasing=TRUE),]
+tweets <- select(tweets, tweet, popularity) %>%
+  distinct()
+View(head(tweets, 50))
+sd(tweets$popularity)
+
+tweets <- dataset[order(dataset$retweets_count, decreasing=TRUE),]
+tweets <- select(tweets, tweet, retweets_count) %>%
+  distinct()
+View(head(tweets, 50))
+
+
+View(tweets[tweets$username=="traveldudes",])
+View(tweets[tweets$username=="lumos",])
+View(tweets[tweets$username=="katevandoore",])
+View(tweets[tweets$username=="bettercarenet",])
+View(tweets[tweets$username=="ro_global",])
+View(tweets[tweets$username=="childsafe",])
+View(tweets[tweets$username=="children_in_fam",])
+View(tweets[tweets$username=="ecpatuk",])
+#write.csv(users2019, file = "~/Documents/GitHub/OT_analysis/data/2019userID.csv")
+```
+
+#read in data for followings and followers
+```{r message=FALSE, warning=FALSE}
+##follower list
+# file_list <- list.files(path = "~/Box Sync/Dissertation_1/Data/follower", pattern="*.csv") #read in the list of csv
+# #file_list <- substr(file_list, 1, nchar(file_list)-4) #remove '.csv'
+# 
+# #read-in the followers of each user and keep those that appeared in keyword search only
+# follower <- data.frame()
+# for (i in 2175:length(file_list)){
+#   temp_data <- read_csv(file=paste0("~/Box Sync/Dissertation_1/Data/follower/", file_list[i]))
+#   temp_data$user <- gsub(".csv", "", file_list[i])
+#   colnames(temp_data)[1] <- c("follower")
+#   follower <- rbind(follower, temp_data)
+# }
+# 
+# save(follower, file = "~/Documents/GitHub/OT_analysis/data/network_dataset_follower.RData") #save as a dataset
+# rm(temp_data, i) #remove temp_data and i
+# 
+# ##following list
+# file_list <- list.files(path = "~/Box Sync/Dissertation_1/Data/followings", pattern="*.csv")
+# file_list <- tolower(file_list)
+# 
+# following <- data.frame()
+# for (i in 1:length(file_list)){
+#   temp_data <- read_csv(file=paste0("~/Box Sync/Dissertation_1/Data/followings/", file_list[i]))
+#   temp_data$user <- gsub(".csv", "", file_list[i])
+#   colnames(temp_data)[1] <- c("following")
+#   temp_data <- temp_data[temp_data$following %in% users2019,]
+#   following <- rbind(following, temp_data)
+# }
+# 
+# save(following, file = "~/Documents/GitHub/OT_analysis/data/network_dataset_following.RData")
+# rm(temp_data, i)
+```
+
+```{r build network}
+# colnames(following) <- c("user", "follower") #change following to user and user to follower to match the relationship for merge
+# 
+# network <- rbind(follower, following)
+# head(network)
+# 
+# network %>% 
+#   group_by(user) %>% 
+#   mutate(count = n()) %>%
+#   summary()
+
+# write.csv(network, "~/Documents/GitHub/OT_analysis/data/full_network.csv")
+```
+
+```{r}
+library(tidygraph)
+library(igraph)
+library(ggraph)
+
+network <- read.csv("~/Documents/GitHub/OT_analysis/data/full_network.csv")
+colnames(network) <- c("follower", "user")
+
+userID <- network %>%
+  pull(user) %>%
+  unique %>%
+  as.character()
+
+followerID <- network %>%
+  pull(follower) %>%
+  unique %>%
+  as.character()
+
+userID <- c(userID, followerID) %>% unique
+
+library(rtweet)
+userProfile <- lookup_users(userID)
+
+par(mfrow=c(1,3)) 
+plot(sort(userProfile$followers_count), xlab="", ylab="Followers Count", cex.lab=1.5)
+plot(sort(userProfile$friends_count), xlab="User", ylab="Friends Count", cex.lab=1.5)
+plot(sort(userProfile$statuses_count), xlab="", ylab="Statuses Count", cex.lab=1.5)
+# graph <- network %>% 
+#   select(user, follower) %>%  # drop the count column
+#   as_tbl_graph() %>%
+#   distinct()
+# 
+# graph
+```
+
+```{r}
+layout_list <- list(
+  list(layout = 'star'),
+  list(layout = 'circle'),
+  list(layout = 'gem'),
+  list(layout = 'graphopt'),
+  list(layout = 'grid'),
+  list(layout = 'mds'),
+  list(layout = 'randomly'),
+  list(layout = 'fr'),
+  list(layout = 'kk'),
+  list(layout = 'nicely'),
+  list(layout = 'lgl'),
+  list(layout = 'drl'))
+```
+
+```{r assign sentiment to each user}
+sentiment <- read.csv(file="~/Documents/GitHub/OT_analysis/results/sentiment_assigned.csv")
+sentiment <- select(sentiment, username, sentiment)
+colnames(sentiment)[1] <- c("user")
+
+# sentiment$sentiment_f <- sentiment$sentiment
+# sentiment$sentiment <- NULL
+# colnames(sentiment)[1] <- c("follower")
+# network <- inner_join(network, sentiment, by="follower")
+
+users <- as.data.frame(userID)
+colnames(users) <- c("user")
+
+users <- inner_join(sentiment, users, by="user")
+users <- users[!duplicated(users$user),]
+
+missing <- network[network$user %in% users$user == FALSE | 
+                     network$follower %in% users$user == FALSE ,]
+
+network <- anti_join(network, missing)
+traveldudes <- network[network$follower=="traveldudes" | network$user=="traveldudes",]
+# create data:
+plot(traveldudes)
+
+edges <- data.frame(source=network$follower, target=network$user)
+nodes <- data.frame(user=users$user,
+                    sentiment=users$sentiment)
+
+# Turn it into igraph object
+sent_network <- graph_from_data_frame(d=edges, vertices=nodes, directed=T) 
+ 
+# Generate colors based on media type:
+V(sent_network)$color[V(sent_network)$sentiment=="p"] <- "green"
+V(sent_network)$color[V(sent_network)$sentiment=="n"] <- "red"
+
+#vertex_attr(sent_network)
+
+b <- centr_betw(sent_network)
+d <- centr_degree(sent_network)
+summary(d$res)
+
+V(sent_network)[which(!is.infinite(d$res) & d$res > 8)]
+
+degree <- delete_vertices(sent_network, !V(sent_network) %in% V(sent_network)[ which(d$res > 50)])
+degree <- as.data.frame(degree)
+
+btw <- delete_vertices(sent_network, !V(sent_network) %in% V(sent_network)[ which(b$res > 30000)])
+
+write_graph(sent_network, file="~/Documents/GitHub/OT_analysis/results/sentiment_assigned_graph.txt", "gml")
+
+library(qgraph)
+
+par(mar=c(0,0,0,0)); plot(betw, vertex.label=NA, layout=layout_with_fr)
+legend(x=.75, y=.75, legend=c("Positive", "Negative"), 
+       pch=21, pt.bg=c("green", "red"), pt.cex=2, bty="n")
+
+
+par(mfrow=c(1, 3))
+
+plot(sent_network,layout=layout_with_mds,vertex.size=4,vertex.label=NA, edge.arrow.size=0.3)
+
+e <- get.edgelist(degree, names=FALSE)
+l <- qgraph.layout.fruchtermanreingold(e,vcount=vcount(degree))
+plot(degree,layout=l,vertex.size=4,vertex.label=NA, edge.arrow.size=0.3)
+
+e <- get.edgelist(sent_network, names=FALSE)
+l <- qgraph.layout.fruchtermanreingold(e,vcount=vcount(sent_network))
+plot(sent_network,layout=l,vertex.size=4,vertex.label=NA, edge.arrow.size=0.3)
+
+l <- qgraph.layout.fruchtermanreingold(e,vcount=vcount(sent_network),
+      area=5*(vcount(sent_network)^2),repulse.rad=(vcount(degree)^4))
+plot(degree,layout=l,vertex.size=4,vertex.label=NA, edge.arrow.size=0.3)
+```
+
+
+```{r}
+filtered_graph <- graph %>% 
+  mutate(community = group_walktrap()) %>% 
+  filter(community %in% 1:2) # Getting rid of tiny communities
+
+layouts <- filtered_graph %>% 
+  invoke_map('create_layout', layout_list, graph = .) %>% 
+  set_names(unlist(layout_list)) %>% 
+  bind_rows(.id = 'layout')
+
+dummy_layout <- create_layout(filtered_graph, 'nicely')
+
+attr(layouts, 'graph') <- attr(dummy_layout, 'graph')
+attr(layouts, 'circular') <- FALSE
+
+library(gganimate)
+g <- ggraph(layouts) +
+  geom_node_point(aes(col = as.factor(community))) +
+  theme_graph() +
+  theme(legend.position = 'none') +
+  labs(title = 'R Twitter Communities',
+       subtitle = 'Using {closest_state} layout engine') +
+  transition_states(layout, 1, 2) +
+  ease_aes('linear') +
+  view_follow()
+
+g
+
+centrality <- graph %>% 
+  activate(nodes) %>% 
+  mutate(centrality = centrality_betweenness())
+
+library(netrankr)
+filtered_graph <- graph %>% 
+  mutate(community = group_walktrap()) %>% 
+  mutate(centrality = centrality_random_walk()) %>% 
+  arrange(desc(centrality)) 
+
+filtered_graph
+
+ggraph(filtered_graph, layout = 'kk') +
+  geom_edge_fan(aes(alpha = ..index..)) +
+  geom_node_point(aes(col = as.factor(community))) +
+  geom_node_text(aes(label = name), repel = TRUE, color = "red",
+                 segment.colour = 'slateblue', fontface = "bold") +
+  theme_graph() +
+  theme(legend.position = 'none') +
+  labs(title = 'R Twitter Follower Network',
+       subtitle = 'Top 15 active users (by follower count and centrality)')
+```
+
+
